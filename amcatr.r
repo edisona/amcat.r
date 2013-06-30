@@ -1,9 +1,21 @@
 library(rjson)
 library(RCurl)
 
-amcat.connect <- function(username, passwd, host) {
-  list(passwd=passwd, username=username, host=host)
-  
+amcat.connect <- function(host, username=NULL, passwd=NULL, test=T) {
+  if (is.null(username)) {
+    cat(paste("Please enter the username for", host, "\n"))
+    username=readline()
+  }
+  if (is.null(passwd)) {
+    cat(paste("Please enter the password for ",username,"@", host, "\n", sep=""))
+    passwd=readline()
+  }
+  conn = list(passwd=passwd, username=username, host=host)
+  if (test) {
+    version = amcat.getobjects(conn, "amcat")$db_version
+    cat(paste("Connected to ", username, "@", host, " (db_version=",version,")\n", sep=""))
+  }
+  conn
 }
 
 amcat.getobjects <- function(conn, resource, format='csv', stepsize=50000, filters=list()) {
