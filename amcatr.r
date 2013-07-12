@@ -18,9 +18,10 @@ amcat.connect <- function(host, username=NULL, passwd=NULL, test=T) {
   conn
 }
 
-amcat.getobjects <- function(conn, resource, format='csv', stepsize=50000, filters=list()) {
+amcat.getobjects <- function(conn, resource, format='csv', stepsize=50000, filters=list(), ...) {
   limit = stepsize
   url = paste(conn$host, '/api/v4/', resource, '?format=', format, '&page_size=', limit, sep='')
+  filters = c(filters, list(...))
   if (length(filters) > 0) {
     for (i in 1:length(filters))
       url = paste(url, '&', names(filters)[i], '=', filters[[i]], sep='')
