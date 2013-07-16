@@ -1,5 +1,5 @@
 library(lme4)
-library(psych)
+library(sandwich)
 
 intermedia.organizeData <- function(hits, meta, variable='hits', codes=c(), split_hours=c(), skip_weekdays=c(), mediameta=data.frame()){
   if(length(codes) == 0) codes = unique(hits$code)
