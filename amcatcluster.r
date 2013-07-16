@@ -18,6 +18,7 @@ amcat.gettokens <- function(conn, setid) {
   }     
   tokens
 }
+
 amcat.getwords <- function(conn, wordids) {
   batch = 100
   pages = ceiling(length(wordids) / batch)

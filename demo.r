@@ -1,4 +1,4 @@
-source("~/amcat.r/amcatr.r")
+source("amcatr.r")
 
 conn = amcat.connect("amcat-dev.labs.vu.nl")
 
