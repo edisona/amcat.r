@@ -28,6 +28,26 @@ amcat.getMediumString <- function(mediumids, formulaproof=T){
   medium_strings
 }
 
+amcat.getMetaForArticlelist <- function(conn, articleids, output_fields=c('id','date','medium')){
+  meta = NULL
+  batch_count = 1
+  setsize = length(articleids)
+  while(TRUE){
+    batch = articleids[batch_count:(batch_count+99)]
+    print(paste(batch_count, '/', setsize))
+    batch_count = batch_count + 100
+    batch = batch[!is.na(batch)]  
+    if(length(batch) == 0) break
+    
+    output = amcat.getobjects(conn=conn, resource='articlemeta', format='csv', filters = list(pk=batch), use__in=c('pk')) 
+    output = output[,output_fields]
+    meta = rbind(meta, output)
+    
+    if(length(batch) < 100) break
+  }
+  meta
+}
+
 # article hits
 amcat.getHits <- function(conn, queries, articlesets){
   hits = NULL
