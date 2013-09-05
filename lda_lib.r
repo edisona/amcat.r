@@ -71,26 +71,24 @@ lda.prepareData <- function(conn, target.set, reference.set, n.thres=5, over.thr
   list(matrix=ldamatrix, voca.target=voca.target, article_ids=unique(t.target$article_id))
 }
 
-lda.prepareData2 <- function(conn, target.set, reference.set, n.thres=5, over.thres=1.5, chi.thres=5, use.pos=c("V","N","A")) {
-  tokens.target = amcat.getFeatures(conn, target.set, unit_level='article', min_freq=n.thres)
-  tokens.reference = amcat.getTokens2(conn, reference.set, articleids=T)
+
+
+lda.prepareFeatures <- function(features.target, reference.target, n.thres=5, over.thres=1.5, chi.thres=5, use.pos=NA) {
+  ## meant to replace lda.prepareData
+  features.all = rbind(features.target, features.reference)
+  features.all$source = c(rep('target', nrow(features.target)), rep('reference', nrow(features.reference)))
   
-  tokens.all = rbind(tokens.target, tokens.reference)
-  tokens.all$source = c(rep('target', nrow(tokens.target)), rep('reference', nrow(tokens.reference)))
-  
-  words = cast(tokens.all, wordid ~ source, value="n", fun.aggregate=sum)
-  
+  words = cast(features.all, word ~ source, value="hits", fun.aggregate=sum)
   words = words[words$target > n.thres, ]
-  w = amcat.getWords(conn, words$wordid)
-  words = merge(w, words)
   
   words$chi = chi2(words$target, words$reference, sum(words$target) - words$target, sum(words$reference) - words$reference)
   words$over = (words$target / words$reference) / (sum(words$reference) / sum(words$target))
   
-  voca.target = words[words$over > over.thres & words$chi > chi.thres & words$pos %in% use.pos, ]
-  voca.target = voca.target[order(voca.target$over), ]
+  voca.target = words[words$over > over.thres & words$chi > chi.thres,]
+  if(!is.na(use.pos)) voca.target = voca.target[voca.target$pos %in% use.pos,]
+  voca.target = voca.target[order(voca.target$over),]
   
-  t.target = tokens.target[tokens.target$wordid %in% voca.target$wordid,  ]
-  ldamatrix = lda.create.matrix(match(t.target$wordid, voca.target$wordid), t.target$n, t.target$article_id)
-  list(matrix=ldamatrix, voca.target=voca.target, article_ids=unique(t.target$article_id))
+  features.target = features.target[features.target$word %in% voca.target$word,]
+  ldamatrix = lda.create.matrix(match(features.target$word, voca.target$word), features.target$hits, features.target$id)
+  list(matrix=ldamatrix, voca.target=voca.target, article_ids=unique(features.target$id))
 }

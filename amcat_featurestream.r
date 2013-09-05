@@ -17,6 +17,8 @@ data_minfreqperbatch = amcat.getFeatures(conn, articleset_id=4073, unit_level='a
 nrow(data_minfreq) > nrow(data_minfreqperbatch) # De resultaten zijn (uiteraard) anders. min_freq is logischer om te gebruiken; min_freq_perbatch is vooral nuttig bij grote articlesets.
 
 ## Nog te doen --> Meer opties voor soorten features
+## optie voor taal!!!
+## optie om woorden/lemma uit database te gebruiken
 ## opties voor woordprocessing: stemming ja/nee, postags ja/nee, lowercase ja/nee, punctuatie ja/nee
 ## opties voor filtering: stopwoorden ja/nee, headline ja/nee/alleen, POSfilter (lijst)
 ## optie voor ngrams
