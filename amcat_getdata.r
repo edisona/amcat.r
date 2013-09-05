@@ -18,6 +18,27 @@ amcat.getMeta <- function(conn, articlesets, media=c(), from_date=NA, to_date=NA
   meta
 }
 
+filterWords <- function(data, min_freq){
+  agg = aggregate(hits ~ word, data, FUN='sum')
+  agg = agg[agg$hits >= min_freq,]
+  data[data$word %in% agg$word,]
+}
+
+amcat.getFeatures <- function(conn, articleset_id, unit_level='article', batchsize=500, min_freq=0, min_freq_perbatch=0){
+  data = NULL
+  offset = 0
+  while(TRUE){
+    print(paste('Batch',offset,'to',offset+batchsize))
+    output = amcat.runaction(conn, 'Features', articleset=as.integer(articleset_id), unitlevel=unit_level,offset=as.integer(offset),batchsize=batchsize,mindocfreq=0)
+    if(nrow(output) == 0) break
+    if(min_freq_perbatch > 0) output = filterWords(output, min_freq_perbatch)
+    data = rbind(data, output)
+    offset = offset + batchsize
+  }
+  if(min_freq > 1) data = filterWords(data, min_freq)
+  data
+}
+
 amcat.getMediumString <- function(mediumids, formulaproof=T){
   mediumindex = amcat.getobjects(conn, "medium", filters=list(pk=unique(mediumids)),use__in=c('pk'))
   medium_strings = mediumindex$name[match(mediumids,mediumindex$id)]
@@ -63,7 +84,7 @@ amcat.getHits <- function(conn, queries, articlesets){
     if(query == '') next
     
     if(length(grep('#',query)) == 1) query = strsplit(query, '#')[[1]][2]
-    query = paste("code",'# ',query,sep='') # to prevent codes to long for query labels
+    query = paste("code",'# ',query,sep='') # to prevent codes too long for query labels
     
     h = amcat.runaction(conn, 'Query', articlesets=articlesets, query=query)
     if(nrow(h) == 0){

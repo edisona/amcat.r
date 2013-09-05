@@ -4,7 +4,7 @@ source('codebook_lib.r')
 source('associations_lib.r')
 
 ##### INLOGGEN OP AMCAT #####
-conn = amcat.connect('http://amcat.vu.nl') # AmCAT vraagt om je inloggegevens
+conn = amcat.connect('http://amcat-dev.labs.vu.nl') # AmCAT vraagt om je inloggegevens
 
 #### SELECT DATA ####
 articlesets = c(3321,3322) # hier alle articlesets invoeren: c(articleset1, articleset2, ...)
