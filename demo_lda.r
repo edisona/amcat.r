@@ -7,10 +7,10 @@ conn = amcat.connect('http://amcat-dev.labs.vu.nl') # AmCAT vraagt om je inlogge
 articleset_id = 45 # Columns Youp (n = 1323)
 features = amcat.getFeatures(conn, articleset_id)
 
-
-
-data = lda.prepareFeatures(features, docfreq.thres=5, docfreq_pct.max=5) # Nog splitten in prepareVocabulary en prepareMatrix
-m = lda.cluster(data$matrix, data$voca$word, nclusters=200, niterations=100)
+## De beste waarde voor docfreq_pct.max is zeer afhankelijk van de data. Voor veel verschillende onderwerpen in kranten zijn veel voorkomende woorden niet 
+## interessant, maar bij columns van dezelfde auteur zou je dan stijlelementen kunnen missen. 
+data = lda.prepareFeatures(features, docfreq.thres=5, docfreq_pct.max=25) # Nog splitten in prepareVocabulary en prepareMatrix
+m = lda.cluster(data$matrix, data$voca$word, nclusters=30, niterations=100)
 
 top.topic.words(m$topics)
 
