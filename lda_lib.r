@@ -47,48 +47,62 @@ chi2 <- function(a,b,c,d) {
    +  ooe(d, (d+b)*(c+d)/tot))
 }
 
-lda.prepareData <- function(conn, target.set, reference.set, n.thres=5, over.thres=1.5, chi.thres=5, use.pos=c("V","N","A")) {
-  tokens.target = amcat.getTokens(conn, target.set, articleids=T)
-  tokens.reference = amcat.getTokens(conn, reference.set, articleids=T)
-  
-  tokens.all = rbind(tokens.target, tokens.reference)
-  tokens.all$source = c(rep('target', nrow(tokens.target)), rep('reference', nrow(tokens.reference)))
-  
-  words = cast(tokens.all, wordid ~ source, value="n", fun.aggregate=sum)
-  
-  words = words[words$target > n.thres, ]
-  w = amcat.getWords(conn, words$wordid)
-  words = merge(w, words)
-  
-  words$chi = chi2(words$target, words$reference, sum(words$target) - words$target, sum(words$reference) - words$reference)
-  words$over = (words$target / words$reference) / (sum(words$reference) / sum(words$target))
-  
-  voca.target = words[words$over > over.thres & words$chi > chi.thres & words$pos %in% use.pos, ]
-  voca.target = voca.target[order(voca.target$over), ]
-  
-  t.target = tokens.target[tokens.target$wordid %in% voca.target$wordid,  ]
-  ldamatrix = lda.create.matrix(match(t.target$wordid, voca.target$wordid), t.target$n, t.target$article_id)
-  list(matrix=ldamatrix, voca.target=voca.target, article_ids=unique(t.target$article_id))
+fixUnitId <- function(data){
+  ## if unit_level is 'paragraph' or 'sentence', merge parnr/sentnr into article id 
+  if('paragraph' %in% colnames(data) | 'sentence' %in% colnames(data)){ 
+    data$id = as.character(data$id)
+    if('paragraph' %in% colnames(data)) data$id = paste(data$id,data$paragraph, sep='-')
+    if('sentence' %in% colnames(data)) data$id = paste(data$id,data$sentence, sep='-')  
+    data$id = as.factor(data$id)
+  }
+  data$id
 }
 
-
-
-lda.prepareFeatures <- function(features.target, reference.target, n.thres=5, over.thres=1.5, chi.thres=5, use.pos=NA) {
-  ## meant to replace lda.prepareData
-  features.all = rbind(features.target, features.reference)
-  features.all$source = c(rep('target', nrow(features.target)), rep('reference', nrow(features.reference)))
+lda.prepareFeatures <- function(features, features.reference=data.frame(), docfreq.thres=5, docfreq_pct.max=50, over.thres=1.5, chi.thres=5, use.pos=NA) {
+  ## prepares data for LDA. 
+  ## A reference set can be given in order to filter words based on frequency difference
+  ## docfreq.thres and docfreq_pct.max apply to features set only
+  ## use docfreq.thres to filter words on a minimum nr of documents in which they occur
+  ## use docfreq_pct.max to filter words on the maximum percentage of documents in the corpus
+  features$id = fixUnitId(features)
   
-  words = cast(features.all, word ~ source, value="hits", fun.aggregate=sum)
-  words = words[words$target > n.thres, ]
+  if (docfreq_pct.max < 100 | docfreq.thres > 0) {
+    print('Calculating document frequency')
+    docfreq = aggregate(hits ~ word, features, FUN='length') # in how many documents does a word occur?
+    too_rare = docfreq$word[docfreq$hits < docfreq.thres]
+    docfreq$docfreq_pct = (docfreq$hits / length(unique(features$id))) * 100
+    too_common = docfreq$word[docfreq$docfreq_pct > docfreq_pct.max]
+    print(paste('  ', length(too_rare), 'words are too rare (< docfreq.thres)'))
+    print(paste('  ',length(too_common), 'words are too common (> docfreq_pct.max)'))
+  }
   
-  words$chi = chi2(words$target, words$reference, sum(words$target) - words$target, sum(words$reference) - words$reference)
-  words$over = (words$target / words$reference) / (sum(words$reference) / sum(words$target))
+  print('Selecting vocabulary')
+  if(nrow(features.reference) > 0){
+    features.all = rbind(features, features.reference)
+    features.all$source = c(rep('target', nrow(features)), rep('reference', nrow(features.reference)))
   
-  voca.target = words[words$over > over.thres & words$chi > chi.thres,]
-  if(!is.na(use.pos)) voca.target = voca.target[voca.target$pos %in% use.pos,]
-  voca.target = voca.target[order(voca.target$over),]
+    words = cast(features.all, word + pos ~ source, value="hits", fun.aggregate=sum)
+    if (docfreq.thres > 0) words = words[!words$word %in% too_rare,]
+    if (docfreq_pct.max < 100) words = words[!words$word %in% too_common,]
+    
+    words$chi = chi2(words$target, words$reference, sum(words$target) - words$target, sum(words$reference) - words$reference)
+    words$over = (words$target / words$reference) / (sum(words$reference) / sum(words$target))
   
-  features.target = features.target[features.target$word %in% voca.target$word,]
-  ldamatrix = lda.create.matrix(match(features.target$word, voca.target$word), features.target$hits, features.target$id)
-  list(matrix=ldamatrix, voca.target=voca.target, article_ids=unique(features.target$id))
+    voca = words[words$over > over.thres & words$chi > chi.thres,]
+    voca = voca[order(voca$over),]
+  } else {
+    words = aggregate(hits ~ word + pos, features, FUN='sum')
+    if (docfreq.thres > 0) words = words[!words$word %in% too_rare,]
+    if (docfreq_pct.max < 100) words = words[!words$word %in% too_common,]
+    voca = words
+  }
+  if (!is.na(use.pos)) {
+    print(paste('Only using words with POS tag:',use.pos))
+    voca = voca[voca$pos %in% use.pos,]
+  }
+  print(paste('  ','Vocabulary size =', nrow(voca)))
+  print('Building matrix')
+  features = features[features$word %in% voca$word,]
+  ldamatrix = lda.create.matrix(match(features$word, voca$word), features$hits, features$id)
+  list(matrix=ldamatrix, voca=voca, article_ids=unique(features$id))
 }

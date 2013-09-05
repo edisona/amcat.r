@@ -24,14 +24,15 @@ filterWords <- function(data, min_freq){
   data[data$word %in% agg$word,]
 }
 
-amcat.getFeatures <- function(conn, articleset_id, unit_level='article', batchsize=500, min_freq=0, min_freq_perbatch=0){
+amcat.getFeatures <- function(conn, articleset_id, unit_level='article', batchsize=500, min_freq=0, min_freq_perbatch=0, sample_pct=100){
   data = NULL
   offset = 0
   while(TRUE){
-    print(paste('Batch',offset,'to',offset+batchsize))
     output = amcat.runaction(conn, 'Features', articleset=as.integer(articleset_id), unitlevel=unit_level,offset=as.integer(offset),batchsize=batchsize,mindocfreq=0)
     if(nrow(output) == 0) break
     if(min_freq_perbatch > 0) output = filterWords(output, min_freq_perbatch)
+    output = output[sample(1:nrow(output), nrow(output)*(sample_pct/100)),]
+    print(paste('Done: batch',offset,'to',offset+batchsize))
     data = rbind(data, output)
     offset = offset + batchsize
   }
