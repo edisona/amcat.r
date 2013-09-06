@@ -77,6 +77,12 @@ lda.prepareFeatures <- function(features, features.reference=data.frame(), docfr
   }
   
   print('Selecting vocabulary')
+  if (!is.na(use.pos)) {
+    print(paste('Only using words with POS tag:',use.pos))
+    features = features[features$pos %in% use.pos,]
+    if(nrow(features.reference) > 0) features.reference = features.reference[features.reference$pos %in% use.pos,]
+  }
+  
   if(nrow(features.reference) > 0){
     features.all = rbind(features, features.reference)
     features.all$source = c(rep('target', nrow(features)), rep('reference', nrow(features.reference)))
@@ -96,10 +102,7 @@ lda.prepareFeatures <- function(features, features.reference=data.frame(), docfr
     if (docfreq_pct.max < 100) words = words[!words$word %in% too_common,]
     voca = words
   }
-  if (!is.na(use.pos)) {
-    print(paste('Only using words with POS tag:',use.pos))
-    voca = voca[voca$pos %in% use.pos,]
-  }
+  
   print(paste('  ','Vocabulary size =', nrow(voca)))
   print('Building matrix')
   features = features[features$word %in% voca$word,]
