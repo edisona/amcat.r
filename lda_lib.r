@@ -58,7 +58,7 @@ fixUnitId <- function(data){
   data$id
 }
 
-lda.prepareFeatures <- function(features, features.reference=data.frame(), docfreq.thres=5, docfreq_pct.max=50, over.thres=1.5, chi.thres=5, use.pos=NA) {
+lda.prepareFeatures <- function(features, features.reference=data.frame(), docfreq.thres=5, docfreq_pct.max=50, over.thres=1.5, chi.thres=5, use.pos=c()) {
   ## prepares data for LDA. 
   ## A reference set can be given in order to filter words based on frequency difference
   ## docfreq.thres and docfreq_pct.max apply to features set only
@@ -77,8 +77,8 @@ lda.prepareFeatures <- function(features, features.reference=data.frame(), docfr
   }
   
   print('Selecting vocabulary')
-  if (!is.na(use.pos)) {
-    print(paste('Only using words with POS tag:',use.pos))
+  if (length(use.pos) > 0) {
+    print(paste('  ', 'Only using words with POS tag:', paste(use.pos,collapse=', ')))
     features = features[features$pos %in% use.pos,]
     if(nrow(features.reference) > 0) features.reference = features.reference[features.reference$pos %in% use.pos,]
   }

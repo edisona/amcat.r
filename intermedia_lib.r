@@ -1,5 +1,7 @@
+library(reshape)
 library(lme4)
 library(sandwich)
+
 
 intermedia.organizeData <- function(hits, meta, variable='hits', codes=c(), split_hours=c(), skip_weekdays=c(), mediameta=data.frame()){
   if(length(codes) == 0) codes = unique(hits$code)
@@ -101,7 +103,7 @@ intermedia.getLag <- function(d, day_lag=1) {
   codes = unique(d$code)
   for(lagvar in lagvars) d[,lagvar] = NA
   first_t = min(d$t)
-  
+
   d = reshape(d[,c('code','t',hitsvars,lagvars)], timevar=c('code'), idvar=c('t'), direction='wide')
   N = nrow(d)
   sufficient_lag_cases = rep(0,nrow(d))   
@@ -111,7 +113,7 @@ intermedia.getLag <- function(d, day_lag=1) {
   
   print('Calculating lag:')
   for(i in 1:N){
-    if(i %% 1000 == 0) print(paste(i, ' / ', N))
+    if(i %% 100 == 0) print(paste(i, ' / ', N))
     r = d[i,]
     min_t = r$t - lag
     if(min_t < first_t) next # als de lag niet helemaal berekend kan worden, dan blijft lagscore NA    
@@ -128,10 +130,11 @@ intermedia.getLag <- function(d, day_lag=1) {
   d
 }
 
-intermedia.runAnalysis <- function(d, lag=1, b_digits=2, se_digits=2, randomintercepts=F, control_for_daytotal=F){  
+intermedia.runAnalysis <- function(d, b_digits=2, se_digits=2, randomintercepts=F, binomial=F, control_for_daytotal=F, use_ar=T){  
   modelindex = intermedia.getModelIndex(d)
   media = unique(modelindex$medium)
   models_output = NULL
+  #if(randomintercepts==TRUE) print('Using random intercepts for codes') else print("Using pooled issues. Robuse SE's are used")
   for(i in 1:nrow(modelindex)){
     medium = modelindex$medium[i]
     daypart = modelindex$daypart[i]
@@ -140,27 +143,46 @@ intermedia.runAnalysis <- function(d, lag=1, b_digits=2, se_digits=2, randominte
     d$autoregression = d[,paste('lag',medium,sep='.')]
     d$hits = d[,paste('hits',medium,sep='.')]
     
-    baseformula = 'hits ~ autoregression'
+    fullformula = 'hits ~ '
     if(control_for_daytotal == TRUE) {
       d$daytotal = d[,paste('total',medium,sep='.')]
-      formulastring = paste(baseformula, '+ daytotal')
+      fullformula = paste(fullformula, 'daytotal + ', sep='')
     }
-    
+    if(use_ar == TRUE) fullformula = paste(fullformula, 'autoregression +', sep='')
     independent_media = paste('lag',media[!media == medium],sep='.')
-    fullformula = paste(baseformula, paste(independent_media, collapse=' + '), sep=' + ')
+    fullformula = paste(fullformula, paste(independent_media, collapse=' + '), sep='')
+    
+    if(binomial == T) {
+      d$hits[d$hits > 1] = 1
+      family = 'binomial'
+    } else family = 'poisson'
     
     if(randomintercepts==TRUE) {
-      baseformula = paste(baseformula, '+ (1|code)') 
       fullformula = paste(fullformula, '+ (1|code)') 
-      m_base = glmer(as.formula(baseformula), family='poisson',data=d)
-      m = glmer(as.formula(fullformula), family='poisson',data=d)
+      m_base = glmer(hits ~ (1|code), family=family,data=d[d$daypart == daypart,])
+      m = glmer(as.formula(fullformula), family=family,data=d[d$daypart == daypart,])
       mo = intermedia.getLmerOutput(m, b_digits=b_digits, se_digits=se_digits)   
       modelindex$delta.loglik[i] = intermedia.getGlmerFit(m, m_base)
       
-    } else {
-      m_base = glm(as.formula(baseformula), family='poisson',data=d)
-      m = glm(as.formula(fullformula), family='poisson',data=d)
-      mo = intermedia.getRobustSePoissonOutput(m, b_digits=b_digits, se_digits=se_digits)
+    } else {   
+      m_base = glm(hits ~ 1, family=family,data=d[d$daypart == daypart,])
+      m = glm(as.formula(fullformula), family=family,data=d[d$daypart == daypart,])
+      
+      # having fun with intercepts
+      #base_intercept = as.numeric((coef(m_base)['(Intercept)']))
+      #full_intercept = as.numeric((coef(m)['(Intercept)']))
+      # if(binomial == T){
+      #  p_base = 1 / (1 + exp(-base_intercept))
+      #  p_controlled = 1 / (1 + exp(-full_intercept))
+      #} else{
+      #  p_base = exp(base_intercept)
+      #  p_controlled = exp(full_intercept)
+      #}
+      #print(paste(medium, ': ', p_base, ' - ', p_controlled, sep=''))
+      
+      if(binomial == T){ 
+        mo = intermedia.getGlmOutput(m, b_digits=b_digits, se_digits=se_digits)
+      } else mo = intermedia.getRobustSePoissonOutput(m, b_digits=b_digits, se_digits=se_digits)
       modelindex$delta.deviance[i] = intermedia.getGlmFit(m, m_base)
     }    
     mo$model = paste(medium,daypart)
@@ -177,6 +199,7 @@ intermedia.getLmerOutput <- function(m, b_digits=2, se_digits=3){
   se <- sqrt(diag(vc))
   z <- b / sqrt(diag(vc))
   P <- 2 * (1 - pnorm(abs(z)))
+  P[is.na(P)] = 1
   fe = format(round(b,b_digits), digits=b_digits)
   fe[P < 0.05] = paste(fe[P < 0.05], '*', sep='') ; fe[P >= 0.05] = paste(fe[P >= 0.05], ' ', sep='')
   fe[P < 0.01] = paste(fe[P < 0.01], '*', sep='') ; fe[P >= 0.01] = paste(fe[P >= 0.01], ' ', sep='')
@@ -190,6 +213,7 @@ intermedia.getRobustSePoissonOutput <- function (model, b_digits=2, se_digits=2)
   varnames = rownames(summary(model)$coef)
   b = output[,'Estimate']
   P = output[,'Pr(>|z|)']
+  P[is.na(P)] = 1
   se = output[,'Robust SE']
   fe = format(round(b,b_digits), digits=b_digits)
   fe[P < 0.05] = paste(fe[P < 0.05], '*', sep='') ; fe[P >= 0.05] = paste(fe[P >= 0.05], ' ', sep='')
@@ -197,6 +221,22 @@ intermedia.getRobustSePoissonOutput <- function (model, b_digits=2, se_digits=2)
   fe[P < 0.001] = paste(fe[P < 0.001], '*', sep='') ; fe[P >= 0.001] = paste(fe[P >= 0.001], ' ', sep='')
   fe_se = paste(fe, ' (',format(round(se,se_digits),digits=se_digits), ')', sep='')
   data.frame(variable = rownames(output), label_se = fe_se, label=fe, b=b, p=P)
+}
+
+intermedia.getGlmOutput <- function (model, b_digits=2, se_digits=2) {
+  b = coef(model)
+  vc <- vcov(model, useScale = FALSE)
+  se <- sqrt(diag(vc))
+  P = 2 * pnorm(abs(b/se), lower.tail = FALSE)
+  P[is.na(P)] = 1  
+  varnames = rownames(summary(model)$coef)
+  fe = format(round(b,b_digits), digits=b_digits)
+  fe[P < 0.05] = paste(fe[P < 0.05], '*', sep='') ; fe[P >= 0.05] = paste(fe[P >= 0.05], ' ', sep='')
+  fe[P < 0.01] = paste(fe[P < 0.01], '*', sep='') ; fe[P >= 0.01] = paste(fe[P >= 0.01], ' ', sep='')
+  fe[P < 0.001] = paste(fe[P < 0.001], '*', sep='') ; fe[P >= 0.001] = paste(fe[P >= 0.001], ' ', sep='')
+  fe_se = paste(fe, ' (',format(round(se,se_digits),digits=se_digits), ')', sep='')
+  
+  data.frame(variable = varnames, label_se = fe_se, label=fe, b=b, p=P)
 }
 
 intermedia.getRobustSe <-function(model){
@@ -251,7 +291,7 @@ intermedia.cleanName <- function(txt) strsplit(as.character(txt), fixed=T, '.')[
 intermedia.getPublicationHour <- function(d, mediameta=data.frame()){
   #print("Getting hour for available timestamps")
   d$hour = as.numeric(format(d$date, '%H'))
-  format(as.POSIXct(d$date), '%H')
+  #format(as.POSIXct(d$date), '%H')
   if(!nrow(mediameta) == 0){
     #print("Getting preset hours from mediafile:")
     #mediameta$pub_hour = as.numeric(format(as.POSIXct(mediameta$publication_time, format='%H:%M:%S'), '%H'))
@@ -277,7 +317,95 @@ intermedia.getModelIndex <- function(d){
 }
 
 
+intermedia.prepareSlData <- function(codings, meta, attribute, mediameta, attrib_values=c(), lag_hours=24, variable='hits', codes=c(), timesplit='hours', skip_weekdays=c()){
+  if(length(codes) == 0) codes = unique(codings$code) # if not codes are specified, use all codes
+  
+  h = codings[codings$code %in% codes & codings$id %in% meta$id,c('id','code',attribute)] # make basis for results table
+  colnames(h) = c('id','code','attrib')
+  
+  # transform date to day-hour format
+  meta$day = as.Date(format(meta$date))
+  meta$time = intermedia.getPublicationHour(meta, mediameta=mediameta)
+  meta$date = as.POSIXct(paste(format(meta$day), ' ', meta$time, ':00:00',sep=''))  
+  timerange = date=seq(min(meta$date), max(meta$date), "hour")
+  meta$t = match(meta$date, timerange) # change day-hour format to integer (t)
+  
+  h = unique(merge(h, meta[,c('id','medium','t')], by='id', all.x=T)) # match metadata 
+  h$medium = mediameta$medium_string[match(h$medium, mediameta$medium_id)] # change medium_id to medium_string
+  
+  r = intermedia.getSlLag(h, lag_hours) # get lag
+  
+  r$hit = 1 # dependent variable. All cases are 1 (hit)
+  r = intermedia.addzeros(r, attrib_values) # dependent variable, add no-hit cases (using alternative attributes) 
+  r
+}
 
+intermedia.getSlLag <- function(h, lag_hours){  
+  media = NULL
+  for(m in unique(h$medium)) media = c(media, m)
+  
+  r = h[,c('id','code','attrib','medium','t')] # make results table
+  for(m in media) r[,paste('lag',m,sep='.')] = NA # make empty values to fill with calculated lag values
+  for(code in unique(h$code)){ # loop through codes
+    print(code)
+    hs = h[h$code == code,] # select subset of h, containing only the code in the loop
+    hs$hit = 1 # set value to 1 (since each case is a hit)
+    hs = cast(hs, id + code + attrib + t ~ medium, value='hit') # transform dataframe to wide format with media as columns
+    for(m in media[!media %in% colnames(hs)]) hs[,m] = NA # if certain media do not occur in hs, add these as NA (required for matching later on)
+    hs[is.na(hs)] = 0 # set all NA values to 0
+    
+    all_t = unique(hs$t) # get unique points in time (t) for hs
+    all_t = all_t[all_t > lag_hours] # only calculate lag for t with sufficient history
+    for(t in all_t){
+      hs_lag = hs[hs$t < t & hs$t > (t-lag_hours),] # select cases in hs that represent the lag for time t
+      if(nrow(hs_lag) == 0) next # if no lag, continue
+      agg = aggregate(hs_lag[,media], by=list(hss$attrib), FUN='sum') # aggregate lag scores, break by attributes
+      for(i in 1:nrow(agg)){
+        l = agg[i,media] # get lag scores seperately for each attribute
+        attrib = agg$Group.1[i] # get attribute name
+        r[r$code == code & r$attrib == attrib & r$t == t,paste('lag',media,sep='.')] = l # fill lag values in results table for matching code, attribute and t
+      }
+    }
+  }
+  r[is.na(r)] = 0 # set NA values to 0
+  r = r[r$t > lag_hours,] # delete cases whith insufficient history for indicated lag time
+  r
+}
 
+intermedia.addzeros <- function(r, attribs=c()){
+  ## Adds not-coded alternative attributes to results, in order to compare to coded attributes.
+  ## The attribs parameter is optional. If given, only these attributes are used as alternatives. Otherwise, all code attributes that have a least been used once, by any medium, are used.
+  
+  r = r[!r$attrib == '',] # ignore non-coded attributes
+  attribs = attribs[!attribs == ''] 
+  all_codes = unique(r[,c('code','attrib')])
+  for(i in 1:nrow(r)){
+    l = r[i,]
+    if(length(attribs) == 0) {
+      missing_attrib = all_codes$attrib[all_codes$code == l$code & !all_codes$attrib == l$attrib]
+    } else missing_attrib = attribs[!attibs == l$attrib]
+    addlines = NULL
+    for(attrib in missing_attrib){
+      new_l = l
+      new_l$attrib = attrib
+      new_l$hit = 0
+      addlines = rbind(addlines, new_l)
+    }
+    r = rbind(r, addlines)
+  }
+  r
+}
+
+x = data.frame(a = c(1,2,3),b=c(4,5,6))
+
+getPseudoR <- function(m, m_intercept){
+  llm=logLik(m)
+  ll0=logLik(m_intercept)
+  n = length(m$residuals)
+  CoxSnell.R2 <- 1 - exp(-2/n * (llm[1]-ll0[1]))
+  Nagelkerke.R2 <- CoxSnell.R2/(1-exp(2/n * ll0[1]))
+  R2fit <-rbind(CoxSnell.R2, Nagelkerke.R2)
+  R2fit
+}
 
 

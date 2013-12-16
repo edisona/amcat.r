@@ -24,11 +24,11 @@ filterWords <- function(data, min_freq){
   data[data$word %in% agg$word,]
 }
 
-amcat.getFeatures <- function(conn, articleset_id, unit_level='article', batchsize=500, min_freq=0, min_freq_perbatch=0, sample_pct=100){
+amcat.getFeatures <- function(conn, articleset_id, unit_level='article', posfilter=['noun','verb','NN'], use_stemming=T, batchsize=500, min_freq=0, min_freq_perbatch=0, sample_pct=100){
   data = NULL
   offset = 0
   while(TRUE){
-    output = amcat.runaction(conn, 'Features', articleset=as.integer(articleset_id), unitlevel=unit_level,offset=as.integer(offset),batchsize=batchsize,mindocfreq=0)
+    output = amcat.runaction(conn, 'Features', articleset=as.integer(articleset_id), unitlevel=unit_level, posfilter=posfilter, use_stemming=use_stemming, offset=as.integer(offset),batchsize=batchsize,mindocfreq=0)
     if(nrow(output) == 0) break
     if(min_freq_perbatch > 0) output = filterWords(output, min_freq_perbatch)
     output = output[sample(1:nrow(output), nrow(output)*(sample_pct/100)),]
@@ -44,8 +44,8 @@ amcat.getMediumString <- function(mediumids, formulaproof=T){
   mediumindex = amcat.getobjects(conn, "medium", filters=list(pk=unique(mediumids)),use__in=c('pk'))
   medium_strings = mediumindex$name[match(mediumids,mediumindex$id)]
   if(formulaproof == T) {
-    problemcharacters = c(' ',':')
-    for(pc in problemcharacters) medium_strings = gsub(pc,'_',medium_strings)
+    problemcharacters = c(' ',':','.','-')
+    for(pc in problemcharacters) medium_strings = gsub(pc,'_',medium_strings, fixed=T)
   }
   medium_strings
 }
@@ -70,8 +70,7 @@ amcat.getMetaForArticlelist <- function(conn, articleids, output_fields=c('id','
   meta
 }
 
-# article hits
-amcat.getHits <- function(conn, queries, articlesets){
+amcat.getHits <- function(conn, queries, articlesets, mediumids=NULL){
   hits = NULL
   if(!class(queries) == 'data.frame') {
     getQueryLabel <- function(x) strsplit(as.character(x), '#')[[1]][1]
@@ -87,7 +86,11 @@ amcat.getHits <- function(conn, queries, articlesets){
     if(length(grep('#',query)) == 1) query = strsplit(query, '#')[[1]][2]
     query = paste("code",'# ',query,sep='') # to prevent codes too long for query labels
     
-    h = amcat.runaction(conn, 'Query', articlesets=articlesets, query=query)
+    # h = amcat.runaction(conn, 'Query', articlesets=articlesets, query=query) # outdated
+    filters = list(sets=articlesets, q=query, col='hits')
+    if(!is.null(mediumids)) filters = c(filters, mediumids=mediumids)
+    h = amcat.getobjects(conn, "search", filters=filters, use__in=c('sets', 'mediumids'))
+    
     if(nrow(h) == 0){
       print('   Zero hits')
       next
